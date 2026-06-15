@@ -67,9 +67,9 @@ async def get_current_user(
         # Sanitize token
         token = sanitize_string(credentials.credentials)
 
-        user_id = verify_token(token)
+        user_id = verify_token(token, expected_scope="user")
         if user_id is None:
-            logger.error("invalid_token", token_part=token[:10] + "...")
+            logger.error("invalid_user_token", token_part=token[:10] + "...")
             raise HTTPException(
                 status_code=401,
                 detail="Invalid authentication credentials",
@@ -118,9 +118,9 @@ async def get_current_session(
         # Sanitize token
         token = sanitize_string(credentials.credentials)
 
-        session_id = verify_token(token)
+        session_id = verify_token(token, expected_scope="session")
         if session_id is None:
-            logger.error("session_id_not_found", token_part=token[:10] + "...")
+            logger.error("invalid_session_token", token_part=token[:10] + "...")
             raise HTTPException(
                 status_code=401,
                 detail="Invalid authentication credentials",
@@ -187,8 +187,8 @@ async def register_user(request: Request, user_data: UserCreate):
             username=sanitized_username,
         )
 
-        # Create access token
-        token = create_access_token(str(user.id))
+        # Create access token scoped to the user
+        token = create_access_token(str(user.id), scope="user")
 
         return UserResponse(id=user.id, email=user.email, username=user.username, token=token)
     except ValueError as ve:
@@ -236,7 +236,7 @@ async def login(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        token = create_access_token(str(user.id))
+        token = create_access_token(str(user.id), scope="user")
         return TokenResponse(access_token=token.access_token, token_type="bearer", expires_at=token.expires_at)
     except ValueError as ve:
         logger.exception("login_validation_failed", error=str(ve))
@@ -260,8 +260,8 @@ async def create_session(user: User = Depends(get_current_user)):
         # Create session in database, copying username for LLM personalization
         session = await db_service.create_session(session_id, user.id, username=user.username)
 
-        # Create access token for the session
-        token = create_access_token(session_id)
+        # Create access token for the session with explicit session scope
+        token = create_access_token(session_id, scope="session")
 
         logger.info(
             "session_created",
@@ -304,8 +304,8 @@ async def update_session_name(
         # Update the session name
         session = await db_service.update_session_name(sanitized_session_id, sanitized_name)
 
-        # Create a new token (not strictly necessary but maintains consistency)
-        token = create_access_token(sanitized_session_id)
+        # Create a new session-scoped token to keep the session authentication
+        token = create_access_token(sanitized_session_id, scope="session")
 
         return SessionResponse(session_id=sanitized_session_id, name=session.name, token=token)
     except ValueError as ve:
@@ -358,7 +358,7 @@ async def get_user_sessions(user: User = Depends(get_current_user)):
             SessionResponse(
                 session_id=sanitize_string(session.id),
                 name=sanitize_string(session.name),
-                token=create_access_token(session.id),
+                token=create_access_token(session.id, scope="session"),
             )
             for session in sessions
         ]

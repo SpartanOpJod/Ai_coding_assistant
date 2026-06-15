@@ -89,6 +89,10 @@ class InMemoryCacheService:
         """Clear the in-memory cache."""
         self._cache.clear()
 
+    async def ping(self) -> bool:
+        """Return the current health of the in-memory cache."""
+        return True
+
 
 class ValkeyCacheService:
     """Redis/Valkey cache backend for distributed caching."""
@@ -172,6 +176,16 @@ class ValkeyCacheService:
         if self._client:
             await self._client.aclose()
             logger.info("cache_connection_closed")
+
+    async def ping(self) -> bool:
+        """Check the connection to the Valkey/Redis server."""
+        if not self._client:
+            return False
+        try:
+            return await self._client.ping()
+        except Exception as e:
+            logger.warning("cache_ping_failed", error=str(e))
+            return False
 
 
 def _create_cache_service() -> InMemoryCacheService | ValkeyCacheService:

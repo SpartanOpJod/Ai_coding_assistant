@@ -19,12 +19,17 @@ from app.schemas.auth import Token
 from app.utils.sanitization import sanitize_string
 
 
-def create_access_token(thread_id: str, expires_delta: Optional[timedelta] = None) -> Token:
+def create_access_token(
+    thread_id: str,
+    expires_delta: Optional[timedelta] = None,
+    scope: str = "session",
+) -> Token:
     """Create a new access token for a thread.
 
     Args:
         thread_id: The unique thread ID for the conversation.
         expires_delta: Optional expiration time delta.
+        scope: Token scope, such as "user" or "session".
 
     Returns:
         Token: The generated access token.
@@ -36,26 +41,28 @@ def create_access_token(thread_id: str, expires_delta: Optional[timedelta] = Non
 
     to_encode = {
         "sub": thread_id,
+        "scope": scope,
         "exp": expire,
         "iat": datetime.now(UTC),
-        "jti": sanitize_string(f"{thread_id}-{datetime.now(UTC).timestamp()}"),  # Add unique token identifier
+        "jti": sanitize_string(f"{thread_id}-{datetime.now(UTC).timestamp()}"),
     }
 
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    logger.info("token_created", thread_id=thread_id, expires_at=expire.isoformat())
+    logger.info("token_created", thread_id=thread_id, scope=scope, expires_at=expire.isoformat())
 
     return Token(access_token=encoded_jwt, expires_at=expire)
 
 
-def verify_token(token: str) -> Optional[str]:
+def verify_token(token: str, expected_scope: Optional[str] = None) -> Optional[str]:
     """Verify a JWT token and return the thread ID.
 
     Args:
         token: The JWT token to verify.
+        expected_scope: Optional expected token scope (user or session).
 
     Returns:
-        Optional[str]: The thread ID if token is valid, None otherwise.
+        Optional[str]: The thread ID if token is valid and scope matches, None otherwise.
 
     Raises:
         ValueError: If the token format is invalid
@@ -73,11 +80,22 @@ def verify_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         thread_id: str | None = payload.get("sub")
+        token_scope: str | None = payload.get("scope")
+
         if thread_id is None:
             logger.warning("token_missing_thread_id")
             return None
 
-        logger.info("token_verified", thread_id=thread_id)
+        if expected_scope and token_scope != expected_scope:
+            logger.warning(
+                "token_scope_mismatch",
+                expected_scope=expected_scope,
+                token_scope=token_scope,
+                thread_id=thread_id,
+            )
+            return None
+
+        logger.info("token_verified", thread_id=thread_id, scope=token_scope)
         return thread_id
 
     except JWTError as e:

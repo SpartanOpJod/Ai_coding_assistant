@@ -174,23 +174,45 @@ async def health_check(request: Request) -> JSONResponse:
     """Health check endpoint with environment-specific information.
 
     Returns:
-        JSONResponse: Health status payload, with HTTP 503 when the
-        database is unreachable so load balancers can drop the instance.
+        JSONResponse: Health status payload, with HTTP 503 when a critical
+        dependency is unreachable so load balancers can drop the instance.
     """
     logger.info("health_check_called")
 
     # Check database connectivity
     db_healthy = await database_service.health_check()
 
+    # Check long-term memory availability
+    memory_healthy = True
+    try:
+        await memory_service._get_memory()
+    except Exception as e:
+        logger.error("memory_health_check_failed", error=str(e))
+        memory_healthy = False
+
+    # Check optional cache layer
+    cache_healthy = True
+    try:
+        if settings.VALKEY_HOST:
+            cache_state = await cache_service.ping()
+            cache_healthy = cache_state is True
+    except Exception as e:
+        logger.error("cache_health_check_failed", error=str(e))
+        cache_healthy = False
+
     response = {
-        "status": "healthy" if db_healthy else "degraded",
+        "status": "healthy" if db_healthy and memory_healthy else "degraded",
         "version": settings.VERSION,
         "environment": settings.ENVIRONMENT.value,
-        "components": {"api": "healthy", "database": "healthy" if db_healthy else "unhealthy"},
+        "components": {
+            "api": "healthy",
+            "database": "healthy" if db_healthy else "unhealthy",
+            "memory": "healthy" if memory_healthy else "unhealthy",
+            "cache": "healthy" if cache_healthy else "unhealthy",
+        },
         "timestamp": datetime.now().isoformat(),
     }
 
-    # If DB is unhealthy, set the appropriate status code
-    status_code = status.HTTP_200_OK if db_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    status_code = status.HTTP_200_OK if db_healthy and memory_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return JSONResponse(content=response, status_code=status_code)

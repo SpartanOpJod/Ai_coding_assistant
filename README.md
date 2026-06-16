@@ -117,3 +117,28 @@ Yes. Set `LANGFUSE_TRACING_ENABLED=false` (or omit the Langfuse keys). The agent
 
 **Rate limiting is too aggressive**
 Limits are defined in `app/core/limiter.py` (slowapi). Adjust per-route decorators or the default rate in that file. See [docs/configuration.md](docs/configuration.md) for the related env vars.
+
+## Ready to push
+
+These quick steps help you verify and push the repository to GitHub.
+
+1. Run the local unit tests (a lightweight suite was added covering JWT scopes):
+
+```bash
+python -m pip install --upgrade pip
+pip install .[test]
+pytest -q
+```
+
+2. Create a branch, commit, and push:
+
+```bash
+git checkout -b prepare/ci-tests
+git add .
+git commit -m "ci: add CI workflow, tests, and README push instructions"
+git push -u origin prepare/ci-tests
+```
+
+3. Open a Pull Request on GitHub; the CI workflow will run `pytest` on push/PR.
+
+If you'd like, I can create a branch and prepare the commit for you locally, or add more tests (auth endpoints, session flows) next.
